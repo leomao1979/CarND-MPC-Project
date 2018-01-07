@@ -6,8 +6,8 @@
 using CppAD::AD;
 
 // Set the timestep length and duration
-size_t N = 10;
-double dt = 0.1;
+const size_t N = 10;
+const double dt = 0.1;
 
 // This value assumes the model presented in the classroom is used.
 //
@@ -22,7 +22,7 @@ double dt = 0.1;
 const double Lf = 2.67;
 
 // Reference velocity
-double ref_v = 100;
+double ref_v = 80;
 
 // The solver takes all the state variables and actuator
 // variables in a singular vector. Thus, we should to establish
@@ -63,7 +63,7 @@ public:
         // Minimize the value gap between sequential actuations.
         for (int t = 0; t < N - 2; t++) {
             fg[0] += 1000 * (CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2));
-            fg[0] += 10 *(CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2));
+            fg[0] += 5 * (CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2));
         }
         
         // Setup Constraints
@@ -119,12 +119,12 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
     bool ok = true;
     typedef CPPAD_TESTVECTOR(double) Dvector;
     
-    double x    = state[0];
-    double y    = state[1];
-    double psi  = state[2];
-    double v    = state[3];
-    double cte  = state[4];
-    double epsi = state[5];
+    double x     = state[0];
+    double y     = state[1];
+    double psi   = state[2];
+    double v     = state[3];
+    double cte   = state[4];
+    double epsi  = state[5];
 
     // Set the number of model variables (includes both states and inputs).
     size_t n_vars = N * 6 + (N - 1) * 2;;
@@ -222,7 +222,7 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
     
     // Return the first actuator values. The variables can be accessed with `solution.x[i]`
     vector<double> result = {solution.x[delta_start], solution.x[a_start]};
-    for (int i=1; i<N; i++) {
+    for (int i=0; i<N; i++) {
         result.push_back(solution.x[x_start + i]);
         result.push_back(solution.x[y_start + i]);
     }

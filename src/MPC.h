@@ -6,7 +6,8 @@
 
 using namespace std;
 
-extern size_t N;
+extern const size_t N;
+extern const double Lf;
 
 class MPC {
 public:

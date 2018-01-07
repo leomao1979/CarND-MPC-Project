@@ -12,6 +12,8 @@
 // for convenience
 using json = nlohmann::json;
 
+const double latency = 0.1;
+
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
@@ -77,7 +79,7 @@ int main() {
         // The 4 signifies a websocket message
         // The 2 signifies a websocket event
         string sdata = string(data).substr(0, length);
-//        cout << sdata << endl;
+        cout << sdata << endl;
 
         if (sdata.size() > 2 && sdata[0] == '4' && sdata[1] == '2') {
             string s = hasData(sdata);
@@ -93,15 +95,16 @@ int main() {
                     double py = j[1]["y"];
                     double psi = j[1]["psi"];
                     double v = j[1]["speed"];
-
+                    double throttle = j[1]["throttle"];
+                    double steering = j[1]["steering_angle"];
+                    
                     // Transform to vehicle coordinate system
                     vector<double> ptsx_vcs, ptsy_vcs;
                     for (int i=0; i<ptsx.size(); i++) {
-                        double x_point_vcs = cos(psi) * (ptsx[i] - px) + sin(psi) * (ptsy[i] - py);
-                        double y_point_vcs = cos(psi) * (ptsy[i] - py) - sin(psi) * (ptsx[i] - px);
-                        ptsx_vcs.push_back(x_point_vcs);
-                        ptsy_vcs.push_back(y_point_vcs);
-//                        cout << "[" << x_point_vcs << ", " << y_point_vcs << "]; ";
+                        double x_vcs = cos(psi) * (ptsx[i] - px) + sin(psi) * (ptsy[i] - py);
+                        double y_vcs = cos(psi) * (ptsy[i] - py) - sin(psi) * (ptsx[i] - px);
+                        ptsx_vcs.push_back(x_vcs);
+                        ptsy_vcs.push_back(y_vcs);
                     }
                     
                     // Fit a polynomial to the above x and y coordinates
@@ -109,14 +112,24 @@ int main() {
                     Eigen::VectorXd pts_yvals = Eigen::VectorXd::Map(ptsy_vcs.data(), ptsy_vcs.size());
                     auto coeffs = polyfit(pts_xvals, pts_yvals, 3);
 
-                    // Calculate the cross track error and orientation error
+                    // Initial state of Vehicle Coordinate System
                     double px_vcs = 0, py_vcs = 0, psi_vcs = 0;
                     double cte = polyeval(coeffs, px_vcs) - py_vcs;
                     double epsi = psi_vcs - atan(coeffs[1]);
-//                    double epsi = psi - atan(coeffs[1] + 2 * coeffs[2] * px_vcs + 3 * coeffs[3] * pow(px_vcs, 2));
-                    Eigen::VectorXd state(6);
-                    state << px_vcs, py_vcs, psi_vcs, v, cte, epsi;
+//                    double epsi = psi_vcs - atan(coeffs[1] + 2 * coeffs[2] * px_vcs + 3 * coeffs[3] * pow(px_vcs, 2));
+                    
+                    double delta = -steering * deg2rad(25), a = throttle;
+                    // New initial state with latency
+                    double x_latency = px_vcs + v * cos(psi_vcs) * latency;
+                    double y_latency = py_vcs + v * sin(psi_vcs) * latency;
+                    double psi_latency = psi_vcs + v * delta / Lf * latency;
+                    double v_latency = v + a * latency;
+                    double cte_latency = cte + v * sin(epsi) * latency;
+                    double epsi_latency = epsi + v * delta / Lf * latency;
 
+                    Eigen::VectorXd state(6);
+                    state << x_latency, y_latency, psi_latency, v_latency, cte_latency, epsi_latency;
+                    
                     // Calculate steering angle and throttle using MPC. Both are in between [-1, 1]
                     auto vars = mpc.Solve(state, coeffs);
                     // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
@@ -128,40 +141,53 @@ int main() {
                     msgJson["steering_angle"] = steer_value;
                     msgJson["throttle"] = throttle_value;
                     
-                    // Display the MPC predicted trajectory
-                    // Points are in reference to the vehicle's coordinate system
-                    // The points in the simulator are connected by a Green line
+                    // Display the MPC predicted trajectory (Green line)
+                    // Points are in reference to the vehicle's coordinate system with respect to new position after latency
                     vector<double> mpc_x_vals;
                     vector<double> mpc_y_vals;
-                    const int begin_index = 2;
-                    for (int i=0; i < 2 * (N - 1); i += 2) {
-                        mpc_x_vals.push_back(vars[begin_index + i]);
-                        mpc_y_vals.push_back(vars[begin_index + i + 1]);
+                    const int mpc_x_start = 2;
+                    for (int i = 0; i < 2 * (N - 2); i += 2) {
+                        double mpc_x = vars[mpc_x_start + i], mpc_y = vars[mpc_x_start + i + 1];
+                        double x_transform = cos(psi_latency) * (mpc_x - x_latency) + sin(psi_latency) * (mpc_y - y_latency);
+                        double y_transform = cos(psi_latency) * (mpc_y - y_latency) - sin(psi_latency) * (mpc_x - x_latency);
+                        if (x_transform > 0) {
+                            mpc_x_vals.push_back(x_transform);
+                            mpc_y_vals.push_back(y_transform);
+                        }
+                    }
+                    double max_mpc_x = *std::max_element(mpc_x_vals.begin(), mpc_x_vals.end());
+                    if (max_mpc_x < 8) {
+                        mpc_x_vals.clear();
+                        mpc_y_vals.clear();
                     }
                     msgJson["mpc_x"] = mpc_x_vals;
                     msgJson["mpc_y"] = mpc_y_vals;
                     
-                    // Display the waypoints/reference line
-                    // Points are in reference to the vehicle's coordinate system
-                    // The points in the simulator are connected by a Yellow line
+                    // Display the waypoints/reference line (Yellow line)
+                    // Points are in reference to the vehicle's coordinate system with respect to new position after latency
                     vector<double> next_x_vals;
                     vector<double> next_y_vals;
-                    
-                    int number_points = 10; //mpc_x_vals.size();
-                    int step_size = 7;
+                    const int number_points = 15, step_size = 3;
+                    double minimum_x = 3;
+                    if (mpc_x_vals.size() > 0) {
+                        minimum_x = *std::min_element(mpc_x_vals.begin(), mpc_x_vals.end());
+                    }
                     for (int i=1; i <= number_points; i++) {
-                        double x = i * step_size;
-                        next_x_vals.push_back(x);
-                        next_y_vals.push_back(polyeval(coeffs, x));
+                        double x = i * step_size, y = polyeval(coeffs, x);
+                        double x_transform = cos(psi_latency) * (x - x_latency) + sin(psi_latency) * (y - y_latency);
+                        double y_transform = cos(psi_latency) * (y - y_latency) - sin(psi_latency) * (x - x_latency);
+                        if (x_transform > minimum_x) {
+                            next_x_vals.push_back(x_transform);
+                            next_y_vals.push_back(y_transform);
+                        }
                     }
                     msgJson["next_x"] = next_x_vals;
                     msgJson["next_y"] = next_y_vals;
-                    
                     auto msg = "42[\"steer\"," + msgJson.dump() + "]";
-//                    std::cout << msg << std::endl;
                     
                     // Latency: the purpose is to mimic real driving conditions where the car does actuate the commands instantly
-//                    this_thread::sleep_for(chrono::milliseconds(100));
+                    this_thread::sleep_for(chrono::milliseconds(100));
+                    std::cout << msg << std::endl << std::endl;
                     ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
                 }
             } else {
@@ -172,8 +198,7 @@ int main() {
         }
     });
     
-    // We don't need this since we're not using HTTP but if it's removed the
-    // program
+    // We don't need this since we're not using HTTP but if it's removed the program
     // doesn't compile :-(
     h.onHttpRequest([](uWS::HttpResponse *res, uWS::HttpRequest req, char *data,
                        size_t, size_t) {
