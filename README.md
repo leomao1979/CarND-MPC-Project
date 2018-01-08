@@ -3,6 +3,11 @@ Self-Driving Car Engineer Nanodegree Program
 
 ---
 
+[//]: # (Image References)
+
+[equations]: ./images/equations.png "Equations"
+
+
 ## Dependencies
 
 * cmake >= 3.5
@@ -48,61 +53,110 @@ is the vehicle starting offset of a straight line (reference). If the MPC implem
 4.  Tips for setting up your environment are available [here](https://classroom.udacity.com/nanodegrees/nd013/parts/40f38239-66b6-46ec-ae68-03afd8a601c8/modules/0949fca6-b379-42af-a919-ee50aa304e6a/lessons/f758c44c-5e40-4e01-93b5-1a82aa4e044f/concepts/23d376c7-0195-4276-bdf0-e02f1f3c665d)
 5. **VM Latency:** Some students have reported differences in behavior using VM's ostensibly a result of latency.  Please let us know if issues arise as a result of a VM environment.
 
-## Editor Settings
+## Rubric Points
 
-We've purposefully kept editor configuration files out of this repo in order to
-keep it as simple and environment agnostic as possible. However, we recommend
-using the following settings:
+[rubric points](https://review.udacity.com/#!/rubrics/896/view)
 
-* indent using spaces
-* set tab width to 2 spaces (keeps the matrices in source code aligned)
+### Your code should compile
+Code compiles with `cmake` and `make` without errors.
 
-## Code Style
+### MPC Model
 
-Please (do your best to) stick to [Google's C++ style guide](https://google.github.io/styleguide/cppguide.html).
+The state of MPC model includes:
 
-## Project Instructions and Rubric
+x: x coordinate of vehicle's current postion 
+y: y coordinate of vehicle's current position
+𝛹(psi): vehicle's current orientation angle
+v: vehicle's current speed
+cte: cross track error, the error between road center and the vehicle's position
+e𝛹(epsi): orientation error, the desired orientation subtracted from current orientation
 
-Note: regardless of the changes you make, your project must be buildable using
-cmake and make!
+The actuators include steering angle "𝛿" (delta) and acceleration "a".
 
-More information is only accessible by people who are already enrolled in Term 2
-of CarND. If you are enrolled, see [the project page](https://classroom.udacity.com/nanodegrees/nd013/parts/40f38239-66b6-46ec-ae68-03afd8a601c8/modules/f1820894-8322-4bb3-81aa-b26b3c6dcbaf/lessons/b1ff3be0-c904-438e-aad3-2b5379f0e0c3/concepts/1a2255a0-e23c-44cf-8d41-39b8a3c8264a)
-for instructions and the project rubric.
+Below are the equations to determine next state from current state:
 
-## Hints!
+![Equations][equations]
 
-* You don't have to follow this directory structure, but if you do, your work
-  will span all of the .cpp files here. Keep an eye out for TODOs.
+### Timestep Length and Elapsed Duration (N & dt)
 
-## Call for IDE Profiles Pull Requests
+I tried different combinations of N & dt, include (N: 20, dt: 0.05), (N: 20, dt: 0.08) and (N: 10, dt: 0.1). After tuning the cost function parameters, I could get the car run at 90+ MPH with the last combination. So the selected timestep length is 10 and elapsed duration is 0.1s.
 
-Help your fellow students!
+### Polynomial Fitting and MPC Preprocessing
 
-We decided to create Makefiles with cmake to keep this project as platform
-agnostic as possible. Similarly, we omitted IDE profiles in order to we ensure
-that students don't feel pressured to use one IDE or another.
+The received waypoints are in map's coordinate system. To make it easier for CTE and Epsi calculation, as well as predicted trajectory display in simulator, they are transformed to vehicle's coordinate system before polynomial fitting.
 
-However! I'd love to help people get up and running with their IDEs of choice.
-If you've created a profile for an IDE that you think other students would
-appreciate, we'd love to have you add the requisite profile files and
-instructions to ide_profiles/. For example if you wanted to add a VS Code
-profile, you'd add:
+3-degree polynominal is used for this project.
 
-* /ide_profiles/vscode/.vscode
-* /ide_profiles/vscode/README.md
+```
+    // Transform to vehicle coordinate system
+    vector<double> ptsx_vcs, ptsy_vcs;
+    for (int i=0; i<ptsx.size(); i++) {
+        double x_vcs = cos(psi) * (ptsx[i] - px) + sin(psi) * (ptsy[i] - py);
+        double y_vcs = cos(psi) * (ptsy[i] - py) - sin(psi) * (ptsx[i] - px);
+        ptsx_vcs.push_back(x_vcs);
+        ptsy_vcs.push_back(y_vcs);
+    }
 
-The README should explain what the profile does, how to take advantage of it,
-and how to install it.
+    // Fit a polynomial to the above x and y coordinates
+    Eigen::VectorXd pts_xvals = Eigen::VectorXd::Map(ptsx_vcs.data(), ptsx_vcs.size());
+    Eigen::VectorXd pts_yvals = Eigen::VectorXd::Map(ptsy_vcs.data(), ptsy_vcs.size());
+    auto coeffs = polyfit(pts_xvals, pts_yvals, 3);
 
-Frankly, I've never been involved in a project with multiple IDE profiles
-before. I believe the best way to handle this would be to keep them out of the
-repo root to avoid clutter. My expectation is that most profiles will include
-instructions to copy files to a new location to get picked up by the IDE, but
-that's just a guess.
+```
 
-One last note here: regardless of the IDE used, every submitted project must
-still be compilable with cmake and make./
+### Model Predictive Control with Latency
 
-## How to write a README
-A well written README file can enhance your project and portfolio.  Develop your abilities to create professional README files by completing [this free course](https://www.udacity.com/course/writing-readmes--ud777).
+To deal with latency, the initial state is re-calculated with current state and duration of delay.
+
+```
+    double delta = -steering * deg2rad(25), a = throttle;
+    // New initial state with latency
+    double x_latency = px_vcs + v * cos(psi_vcs) * latency;
+    double y_latency = py_vcs + v * sin(psi_vcs) * latency;
+    double psi_latency = psi_vcs + v * delta / Lf * latency;
+    double v_latency = v + a * latency;
+    double cte_latency = cte + v * sin(epsi) * latency;
+    double epsi_latency = epsi + v * delta / Lf * latency;
+
+    Eigen::VectorXd state(6);
+    state << x_latency, y_latency, psi_latency, v_latency, cte_latency, epsi_latency;
+
+```
+
+
+The predicted trajectory returned from MPC is in vehicle's coordinate system with respect to current state. However, with latency when it is displayed in simuatlor, the new origin would be different. So, the resulting trajectory should be transformed accordingly.
+
+```
+    // Display the MPC predicted trajectory (Green line)
+    // Points are in reference to the vehicle's coordinate system with respect to new position after latency
+    vector<double> mpc_x_vals;
+    vector<double> mpc_y_vals;
+    const int mpc_x_start = 2;
+    for (int i = 0; i < 2 * (N - 2); i += 2) {
+        double mpc_x = vars[mpc_x_start + i], mpc_y = vars[mpc_x_start + i + 1];
+        double x_transform = cos(psi_latency) * (mpc_x - x_latency) + sin(psi_latency) * (mpc_y - y_latency);
+        double y_transform = cos(psi_latency) * (mpc_y - y_latency) - sin(psi_latency) * (mpc_x - x_latency);
+        if (x_transform > 0) {
+            mpc_x_vals.push_back(x_transform);
+            mpc_y_vals.push_back(y_transform);
+        }
+    }
+    double max_mpc_x = *std::max_element(mpc_x_vals.begin(), mpc_x_vals.end());
+    if (max_mpc_x < 8) {
+        mpc_x_vals.clear();
+        mpc_y_vals.clear();
+    }
+    msgJson["mpc_x"] = mpc_x_vals;
+    msgJson["mpc_y"] = mpc_y_vals;
+
+```
+
+
+### The vehicle must successfully drive a lap around the track.
+Yes, the vehicle will successfully drive around the track with the chosen parameters. Please see output/video.mp4 for details.
+
+
+
+
+
+

@@ -22,7 +22,7 @@ const double dt = 0.1;
 const double Lf = 2.67;
 
 // Reference velocity
-double ref_v = 80;
+double ref_v = 100;
 
 // The solver takes all the state variables and actuator
 // variables in a singular vector. Thus, we should to establish
@@ -62,7 +62,7 @@ public:
         }
         // Minimize the value gap between sequential actuations.
         for (int t = 0; t < N - 2; t++) {
-            fg[0] += 1000 * (CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2));
+            fg[0] += 200 * (CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2));
             fg[0] += 5 * (CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2));
         }
         
