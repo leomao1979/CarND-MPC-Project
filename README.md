@@ -65,13 +65,20 @@ Code compiles with `cmake` and `make` without errors.
 The state of MPC model includes:
 
 x: x coordinate of vehicle's current postion 
+
 y: y coordinate of vehicle's current position
+
 𝛹(psi): vehicle's current orientation angle
+
 v: vehicle's current speed
+
 cte: cross track error, the error between road center and the vehicle's position
+
 e𝛹(epsi): orientation error, the desired orientation subtracted from current orientation
 
+
 The actuators include steering angle "𝛿" (delta) and acceleration "a".
+
 
 Below are the equations to determine next state from current state:
 
