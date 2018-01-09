@@ -64,18 +64,12 @@ Code compiles with `cmake` and `make` without errors.
 
 The state of MPC model includes:
 
-x: x coordinate of vehicle's current postion 
-
-y: y coordinate of vehicle's current position
-
-𝛹(psi): vehicle's current orientation angle
-
-v: vehicle's current speed
-
-cte: cross track error, the error between road center and the vehicle's position
-
-e𝛹(epsi): orientation error, the desired orientation subtracted from current orientation
-
+1) x: x coordinate of vehicle's current postion 
+2) y: y coordinate of vehicle's current position
+3) 𝛹(psi): vehicle's current orientation angle
+4) v: vehicle's current speed
+5) cte: cross track error, the error between road center and the vehicle's position
+6) e𝛹(epsi): orientation error, the desired orientation subtracted from current orientation
 
 The actuators include steering angle "𝛿" (delta) and acceleration "a".
 
@@ -86,7 +80,11 @@ Below are the equations to determine next state from current state:
 
 ### Timestep Length and Elapsed Duration (N & dt)
 
-I tried different combinations of N & dt, include (N: 20, dt: 0.05), (N: 20, dt: 0.08) and (N: 10, dt: 0.1). After tuning the cost function parameters, I could get the car run at 90+ MPH with the last combination. So the selected timestep length is 10 and elapsed duration is 0.1s.
+The prediction horizon `T` is the product of Timestep Length `N` and Elapsed Duration `dt`. The larger `T` and vehicle speed are, the longer the predicted path would be. However, as the environment changes while driving, it doesn't make sense to predict too far into the future. 1 ~ 2 seconds is a reasonable range for `T` with target speed 60+ MPH.
+
+Larger value of `dt` results in less frequency actuations, which makes it harder to accurately approximate a continuous reference trajectory. This is sometimes called "discretization error". So, `dt` shall be as small as possible. However, for fixed `T`, the smaller `dt` results in bigger `N`, which requires more computational cost. 
+
+I tried different combinations of `N` & `dt`, include (N: 20, dt: 0.05), (N: 20, dt: 0.08) and (N: 10, dt: 0.1). After tuning cost function parameters, the car can run at 60+ MPH with the last combination. So the selected `N` is 10 and `dt` is 0.1.
 
 ### Polynomial Fitting and MPC Preprocessing
 
@@ -116,7 +114,7 @@ The received waypoints are in map's coordinate system. To make it easier for CTE
 To deal with latency, the initial state is re-calculated with current state and duration of delay.
 
 ```
-    double delta = -steering * deg2rad(25), a = throttle;
+    double delta = -steering, a = throttle;
     // New initial state with latency
     double x_latency = px_vcs + v * cos(psi_vcs) * latency;
     double y_latency = py_vcs + v * sin(psi_vcs) * latency;
@@ -136,22 +134,18 @@ The predicted trajectory returned from MPC is in vehicle's coordinate system wit
 ```
     // Display the MPC predicted trajectory (Green line)
     // Points are in reference to the vehicle's coordinate system with respect to new position after latency
+    double minimum_x = 3;
     vector<double> mpc_x_vals;
     vector<double> mpc_y_vals;
     const int mpc_x_start = 2;
-    for (int i = 0; i < 2 * (N - 2); i += 2) {
+    for (int i = 0; i < 2 * (N - 1); i += 2) {
         double mpc_x = vars[mpc_x_start + i], mpc_y = vars[mpc_x_start + i + 1];
         double x_transform = cos(psi_latency) * (mpc_x - x_latency) + sin(psi_latency) * (mpc_y - y_latency);
         double y_transform = cos(psi_latency) * (mpc_y - y_latency) - sin(psi_latency) * (mpc_x - x_latency);
-        if (x_transform > 0) {
+        if (x_transform > minimum_x) {
             mpc_x_vals.push_back(x_transform);
             mpc_y_vals.push_back(y_transform);
         }
-    }
-    double max_mpc_x = *std::max_element(mpc_x_vals.begin(), mpc_x_vals.end());
-    if (max_mpc_x < 8) {
-        mpc_x_vals.clear();
-        mpc_y_vals.clear();
     }
     msgJson["mpc_x"] = mpc_x_vals;
     msgJson["mpc_y"] = mpc_y_vals;
