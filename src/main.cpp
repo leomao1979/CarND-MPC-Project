@@ -95,6 +95,8 @@ int main() {
                     double py = j[1]["y"];
                     double psi = j[1]["psi"];
                     double v = j[1]["speed"];
+                    // mile per hour -> meter per second
+                    v = v * 1609 / 3600;
                     double throttle = j[1]["throttle"];
                     double steering = j[1]["steering_angle"];
                     
@@ -118,7 +120,7 @@ int main() {
                     double epsi = psi_vcs - atan(coeffs[1]);
 //                    double epsi = psi_vcs - atan(coeffs[1] + 2 * coeffs[2] * px_vcs + 3 * coeffs[3] * pow(px_vcs, 2));
                     
-                    double delta = -steering * deg2rad(25), a = throttle;
+                    double delta = -steering, a = throttle;
                     // New initial state with latency
                     double x_latency = px_vcs + v * cos(psi_vcs) * latency;
                     double y_latency = py_vcs + v * sin(psi_vcs) * latency;
@@ -143,22 +145,18 @@ int main() {
                     
                     // Display the MPC predicted trajectory (Green line)
                     // Points are in reference to the vehicle's coordinate system with respect to new position after latency
+                    double minimum_x = 3;
                     vector<double> mpc_x_vals;
                     vector<double> mpc_y_vals;
                     const int mpc_x_start = 2;
-                    for (int i = 0; i < 2 * (N - 2); i += 2) {
+                    for (int i = 0; i < 2 * (N - 1); i += 2) {
                         double mpc_x = vars[mpc_x_start + i], mpc_y = vars[mpc_x_start + i + 1];
                         double x_transform = cos(psi_latency) * (mpc_x - x_latency) + sin(psi_latency) * (mpc_y - y_latency);
                         double y_transform = cos(psi_latency) * (mpc_y - y_latency) - sin(psi_latency) * (mpc_x - x_latency);
-                        if (x_transform > 0) {
+                        if (x_transform > minimum_x) {
                             mpc_x_vals.push_back(x_transform);
                             mpc_y_vals.push_back(y_transform);
                         }
-                    }
-                    double max_mpc_x = *std::max_element(mpc_x_vals.begin(), mpc_x_vals.end());
-                    if (max_mpc_x < 8) {
-                        mpc_x_vals.clear();
-                        mpc_y_vals.clear();
                     }
                     msgJson["mpc_x"] = mpc_x_vals;
                     msgJson["mpc_y"] = mpc_y_vals;
@@ -168,7 +166,6 @@ int main() {
                     vector<double> next_x_vals;
                     vector<double> next_y_vals;
                     const int number_points = 15, step_size = 3;
-                    double minimum_x = 3;
                     if (mpc_x_vals.size() > 0) {
                         minimum_x = *std::min_element(mpc_x_vals.begin(), mpc_x_vals.end());
                     }

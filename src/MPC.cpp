@@ -21,8 +21,8 @@ const double dt = 0.1;
 // This is the length from front to CoG that has a similar radius.
 const double Lf = 2.67;
 
-// Reference velocity
-double ref_v = 80;
+// Reference velocity (meters per second)
+double ref_v = 70.0 * 1609 / 3600;
 
 // The solver takes all the state variables and actuator
 // variables in a singular vector. Thus, we should to establish
@@ -48,22 +48,21 @@ public:
         // The cost is stored is the first element of `fg`.
         // Any additions to the cost should be added to `fg[0]`.
         fg[0] = 0;
-        
         // Cost on reference state
         for (int t=0; t < N; t++) {
-            fg[0] +=  2000 * (CppAD::pow(vars[cte_start + t], 2));
-            fg[0] +=  2000 * (CppAD::pow(vars[epsi_start + t], 2));
+            fg[0] +=  1 * (CppAD::pow(vars[cte_start + t], 2));
+            fg[0] +=  100 * (CppAD::pow(vars[epsi_start + t], 2));
             fg[0] +=  CppAD::pow(vars[v_start + t] - ref_v, 2);
         }
         // Minimize use of actuators
         for (int t=0; t < N - 1; t++) {
-            fg[0] += 1000 * (CppAD::pow(vars[delta_start + t], 2));
-            fg[0] += 5 * (CppAD::pow(vars[a_start + t], 2));
+            fg[0] += 10 * (CppAD::pow(vars[delta_start + t], 2));
+            fg[0] += CppAD::pow(vars[a_start + t], 2);
         }
         // Minimize the value gap between sequential actuations.
         for (int t = 0; t < N - 2; t++) {
-            fg[0] += 1000 * (CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2));
-            fg[0] += 5 * (CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2));
+            fg[0] += 2000 * (CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2));
+            fg[0] += 500 * (CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2));
         }
         
         // Setup Constraints
